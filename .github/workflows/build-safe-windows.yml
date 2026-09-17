@@ -1,0 +1,61 @@
+name: Build sanitized Windows replacements
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - sanitized-windows-replacement
+    paths:
+      - "safe-windows/**"
+      - ".github/workflows/build-safe-windows.yml"
+  pull_request:
+    paths:
+      - "safe-windows/**"
+      - ".github/workflows/build-safe-windows.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure x64
+        run: cmake -S safe-windows -B safe-windows/build -A x64
+
+      - name: Build release
+        run: cmake --build safe-windows/build --config Release
+
+      - name: Reject dangerous imports
+        shell: powershell
+        run: |
+          ./safe-windows/tools/verify-imports.ps1 -Files @(
+            "safe-windows/build/Release/hokkinjector-safe.exe",
+            "safe-windows/build/Release/sdgii23dmkf-safe.dll"
+          )
+
+      - name: Generate SHA-256 manifest
+        shell: powershell
+        run: |
+          $outputs = @(
+            "safe-windows/build/Release/hokkinjector-safe.exe",
+            "safe-windows/build/Release/sdgii23dmkf-safe.dll"
+          )
+          $lines = foreach ($file in $outputs) {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $file).Hash.ToLowerInvariant()
+            "$hash  $([IO.Path]::GetFileName($file))"
+          }
+          $lines | Set-Content -Encoding ascii safe-windows/build/Release/SHA256SUMS.txt
+
+      - name: Upload verified binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanitized-windows-x64
+          if-no-files-found: error
+          path: |
+            safe-windows/build/Release/hokkinjector-safe.exe
+            safe-windows/build/Release/sdgii23dmkf-safe.dll
+            safe-windows/build/Release/SHA256SUMS.txt
